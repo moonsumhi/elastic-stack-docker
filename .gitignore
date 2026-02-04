@@ -1,0 +1,31 @@
+# Environment files with secrets
+.env
+
+# Certificates (sensitive)
+ca.crt
+*.crt
+*.key
+*.pem
+
+# Elastic Agent downloaded files
+elastic-agent-*/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (if any local)
+data/
+
+# Claude Code
+.claude/
