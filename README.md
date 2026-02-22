@@ -13,9 +13,12 @@ Docker 기반 Elasticsearch, Kibana, Fleet Server, Elastic Agent 통합 환경
 
 ## 사전 요구사항
 
-- Docker & Docker Compose
+- Docker & Docker Compose V2 (`docker compose` 플러그인 권장, V1 `docker-compose`도 지원)
+- `curl`
 - 최소 8GB RAM 권장
 - bash 쉘 (Linux/macOS/WSL2)
+
+> **Windows 사용자:** WSL2 환경에서 실행하세요. 스크립트는 `.gitattributes`로 LF 줄바꿈이 강제됩니다.
 
 ## 빠른 시작
 
@@ -36,12 +39,11 @@ chmod +x setup.sh add-agent.sh cleanup.sh
 ```
 
 이 스크립트가 자동으로 수행하는 작업:
-1. Elasticsearch 시작 및 인증서 생성
-2. Kibana 시작
-3. `kibana_system` 사용자 비밀번호 설정
-4. Fleet 초기화
-5. Fleet Server 정책 생성
-6. Fleet Server 시작 및 등록
+1. Elasticsearch, Kibana, Fleet Server 시작 (Docker Compose)
+2. `kibana_system` 사용자 비밀번호 설정
+3. Fleet Server 헬스체크 대기
+
+> Fleet 초기화, 정책 생성, 호스트 설정은 `KIBANA_FLEET_SETUP=1` 환경변수로 Fleet Server가 자동 처리합니다.
 
 ### 3. Elastic Agent 추가 (선택)
 
@@ -66,7 +68,7 @@ chmod +x setup.sh add-agent.sh cleanup.sh
 
 ### 상태 확인
 ```bash
-docker-compose ps
+docker compose ps
 docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
 
@@ -79,8 +81,8 @@ docker logs fleet-server --tail 50
 
 ### 서비스 재시작
 ```bash
-docker-compose restart kibana
-docker restart fleet-server
+docker compose restart kibana
+docker compose restart fleet-server
 ```
 
 ### 전체 초기화
@@ -94,7 +96,8 @@ docker restart fleet-server
 ```
 .
 ├── .env                 # 환경 변수 설정
-├── docker-compose.yml   # Elasticsearch, Kibana 컨테이너 정의
+├── .gitattributes       # LF 줄바꿈 강제 (Windows CRLF 방지)
+├── docker-compose.yml   # Elasticsearch, Kibana, Fleet Server 컨테이너 정의
 ├── setup.sh            # 전체 스택 자동 설정 스크립트
 ├── add-agent.sh        # Elastic Agent 추가 스크립트
 ├── cleanup.sh          # 전체 환경 정리 스크립트
@@ -148,6 +151,11 @@ KIBANA_MEM_LIMIT=536870912   # 512MB로 줄이기
 ./cleanup.sh
 ./setup.sh
 ```
+
+### OS별 참고사항
+- **Linux**: 모든 기능 완전 지원
+- **macOS**: Elastic Agent의 호스트 파일시스템 마운트가 생략됩니다 (Docker Desktop VM 특성상 무의미)
+- **Windows/WSL2**: WSL2 터미널에서 실행하세요. Git clone 시 `.gitattributes`가 LF 줄바꿈을 강제합니다
 
 ## 버전 변경
 

@@ -12,6 +12,19 @@ echo_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# --- Prerequisite checks ---
+for cmd in docker curl; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo_error "$cmd is not installed. Please install it first."
+        exit 1
+    fi
+done
+
+if ! docker info &> /dev/null; then
+    echo_error "Docker daemon is not running. Please start Docker first."
+    exit 1
+fi
+
 # Load environment variables
 if [ ! -f .env ]; then
     echo_error ".env file not found!"
@@ -65,18 +78,39 @@ curl -s -X POST "http://localhost:5601/api/fleet/package_policies" \
 # Remove existing agent if exists
 docker rm -f ${AGENT_NAME} 2>/dev/null || true
 
+# --- Detect OS for volume mounts ---
+PLATFORM="$(uname -s)"
+VOLUME_ARGS=(
+    -v "${VOLUME_PREFIX}_certs:/certs:ro"
+)
+
+case "$PLATFORM" in
+    Linux)
+        # Covers native Linux and WSL2
+        VOLUME_ARGS+=(
+            -v /var/log:/var/log:ro
+            -v /var/lib/docker/containers:/var/lib/docker/containers:ro
+            -v /proc:/hostfs/proc:ro
+            -v /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+            -v /:/hostfs:ro
+        )
+        ;;
+    Darwin)
+        # macOS: Docker Desktop runs in a VM, host filesystem mounts are not meaningful
+        echo_warn "macOS detected: skipping host filesystem mounts (Docker Desktop VM)"
+        ;;
+    *)
+        echo_warn "Unknown OS ($PLATFORM): skipping host filesystem mounts"
+        ;;
+esac
+
 # Start Elastic Agent
 echo_info "Starting Elastic Agent..."
 docker run -d \
     --name ${AGENT_NAME} \
     --network elastic \
     --user root \
-    -v ${VOLUME_PREFIX}_certs:/certs:ro \
-    -v /var/log:/var/log:ro \
-    -v /var/lib/docker/containers:/var/lib/docker/containers:ro \
-    -v /proc:/hostfs/proc:ro \
-    -v /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro \
-    -v /:/hostfs:ro \
+    "${VOLUME_ARGS[@]}" \
     -e FLEET_ENROLL=1 \
     -e FLEET_URL=https://fleet-server:8220 \
     -e FLEET_CA=/certs/ca/ca.crt \
