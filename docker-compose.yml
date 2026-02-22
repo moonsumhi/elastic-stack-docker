@@ -1,3 +1,7 @@
+# Podman: use a network instead of a pod so container-name DNS works
+x-podman:
+  in_pod: false
+
 services:
   # Setup container - creates certificates
   setup:
