@@ -13,14 +13,23 @@ echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # --- Prerequisite checks ---
-for cmd in docker curl; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo_error "$cmd is not installed. Please install it first."
-        exit 1
-    fi
-done
+if ! command -v curl &> /dev/null; then
+    echo_error "curl is not installed. Please install it first."
+    exit 1
+fi
 
-if ! docker info &> /dev/null; then
+# --- Detect container runtime (Docker or Podman) ---
+if command -v docker &> /dev/null; then
+    CONTAINER_CLI="docker"
+elif command -v podman &> /dev/null; then
+    CONTAINER_CLI="podman"
+else
+    echo_error "Neither docker nor podman found. Please install a container runtime."
+    exit 1
+fi
+
+# Daemon check (Docker only — Podman is daemonless)
+if [ "$CONTAINER_CLI" = "docker" ] && ! docker info &> /dev/null; then
     echo_error "Docker daemon is not running. Please start Docker first."
     exit 1
 fi
@@ -38,13 +47,13 @@ AGENT_NAME=${1:-elastic-agent}
 echo_info "=== Adding Elastic Agent: ${AGENT_NAME} ==="
 
 # Check if Fleet Server is running
-if ! docker ps --format '{{.Names}}' | grep -q '^fleet-server$'; then
+if ! $CONTAINER_CLI ps --format '{{.Names}}' | grep -q '^fleet-server$'; then
     echo_error "Fleet Server is not running! Run ./setup.sh first."
     exit 1
 fi
 
 # Get volume name prefix
-VOLUME_PREFIX=$(docker volume ls --format '{{.Name}}' | grep certs | head -1 | sed 's/_certs$//')
+VOLUME_PREFIX=$($CONTAINER_CLI volume ls --format '{{.Name}}' | grep certs | head -1 | sed 's/_certs$//')
 
 # Create agent policy if it doesn't exist
 echo_info "Creating agent policy..."
@@ -76,7 +85,7 @@ curl -s -X POST "http://localhost:5601/api/fleet/package_policies" \
     }' > /dev/null 2>&1 || true
 
 # Remove existing agent if exists
-docker rm -f ${AGENT_NAME} 2>/dev/null || true
+$CONTAINER_CLI rm -f ${AGENT_NAME} 2>/dev/null || true
 
 # --- Detect OS for volume mounts ---
 PLATFORM="$(uname -s)"
@@ -106,7 +115,7 @@ esac
 
 # Start Elastic Agent
 echo_info "Starting Elastic Agent..."
-docker run -d \
+$CONTAINER_CLI run -d \
     --name ${AGENT_NAME} \
     --network elastic \
     --user root \

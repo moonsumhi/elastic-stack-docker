@@ -12,24 +12,29 @@ echo_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# --- Prerequisite checks ---
-if ! command -v docker &> /dev/null; then
-    echo_error "docker is not installed. Please install Docker first."
+# --- Detect container runtime (Docker or Podman) ---
+if command -v docker &> /dev/null; then
+    CONTAINER_CLI="docker"
+elif command -v podman &> /dev/null; then
+    CONTAINER_CLI="podman"
+else
+    echo_error "Neither docker nor podman found. Please install a container runtime."
     exit 1
 fi
 
-if ! docker info &> /dev/null; then
+# Daemon check (Docker only — Podman is daemonless)
+if [ "$CONTAINER_CLI" = "docker" ] && ! docker info &> /dev/null; then
     echo_error "Docker daemon is not running. Please start Docker first."
     exit 1
 fi
 
-# --- Detect Docker Compose command (V2 plugin vs V1 standalone) ---
-if docker compose version &> /dev/null; then
-    DOCKER_COMPOSE="docker compose"
+# --- Detect Compose command ---
+if $CONTAINER_CLI compose version &> /dev/null; then
+    COMPOSE_CMD="$CONTAINER_CLI compose"
 elif command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE="docker-compose"
+    COMPOSE_CMD="docker-compose"
 else
-    echo_error "Docker Compose not found. Install the Docker Compose plugin or standalone binary."
+    echo_error "Compose not found. Install the compose plugin or standalone binary."
     exit 1
 fi
 
@@ -45,12 +50,12 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo_info "Stopping and removing containers..."
-docker rm -f elastic-agent 2>/dev/null || true
-$DOCKER_COMPOSE down -v 2>/dev/null || true
+$CONTAINER_CLI rm -f elastic-agent 2>/dev/null || true
+$COMPOSE_CMD down -v 2>/dev/null || true
 
 echo_info "Removing additional volumes..."
-docker volume ls --format '{{.Name}}' | grep -E '(fleetserverdata|agentdata)' | while read -r vol; do
-    docker volume rm "$vol" 2>/dev/null || true
+$CONTAINER_CLI volume ls --format '{{.Name}}' | grep -E '(fleetserverdata|agentdata)' | while read -r vol; do
+    $CONTAINER_CLI volume rm "$vol" 2>/dev/null || true
 done
 
 echo_info "Cleanup complete!"

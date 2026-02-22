@@ -13,25 +13,34 @@ echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # --- Prerequisite checks ---
-for cmd in docker curl; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo_error "$cmd is not installed. Please install it first."
-        exit 1
-    fi
-done
+if ! command -v curl &> /dev/null; then
+    echo_error "curl is not installed. Please install it first."
+    exit 1
+fi
 
-if ! docker info &> /dev/null; then
+# --- Detect container runtime (Docker or Podman) ---
+if command -v docker &> /dev/null; then
+    CONTAINER_CLI="docker"
+elif command -v podman &> /dev/null; then
+    CONTAINER_CLI="podman"
+else
+    echo_error "Neither docker nor podman found. Please install a container runtime."
+    exit 1
+fi
+
+# Daemon check (Docker only — Podman is daemonless)
+if [ "$CONTAINER_CLI" = "docker" ] && ! docker info &> /dev/null; then
     echo_error "Docker daemon is not running. Please start Docker first."
     exit 1
 fi
 
-# --- Detect Docker Compose command (V2 plugin vs V1 standalone) ---
-if docker compose version &> /dev/null; then
-    DOCKER_COMPOSE="docker compose"
+# --- Detect Compose command ---
+if $CONTAINER_CLI compose version &> /dev/null; then
+    COMPOSE_CMD="$CONTAINER_CLI compose"
 elif command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE="docker-compose"
+    COMPOSE_CMD="docker-compose"
 else
-    echo_error "Docker Compose not found. Install the Docker Compose plugin or standalone binary."
+    echo_error "Compose not found. Install the compose plugin or standalone binary."
     exit 1
 fi
 
@@ -48,11 +57,11 @@ echo ""
 
 # Step 1: Start all services (Elasticsearch, Kibana, Fleet Server)
 echo_info "Step 1: Starting Elasticsearch, Kibana, and Fleet Server..."
-$DOCKER_COMPOSE up -d
+$COMPOSE_CMD up -d
 
 # Step 2: Wait for Elasticsearch to be ready
 echo_info "Step 2: Waiting for Elasticsearch to be healthy..."
-until docker exec es01 curl -s --cacert /usr/share/elasticsearch/config/certs/ca/ca.crt \
+until $CONTAINER_CLI exec es01 curl -s --cacert /usr/share/elasticsearch/config/certs/ca/ca.crt \
     -u "elastic:${ELASTIC_PASSWORD}" \
     https://localhost:9200/_cluster/health | grep -q '"status"'; do
     echo_warn "Elasticsearch not ready yet, waiting 10 seconds..."
@@ -62,7 +71,7 @@ echo_info "Elasticsearch is healthy!"
 
 # Step 3: Set kibana_system password
 echo_info "Step 3: Setting kibana_system password..."
-docker exec es01 curl -s -X POST --cacert /usr/share/elasticsearch/config/certs/ca/ca.crt \
+$CONTAINER_CLI exec es01 curl -s -X POST --cacert /usr/share/elasticsearch/config/certs/ca/ca.crt \
     -u "elastic:${ELASTIC_PASSWORD}" \
     -H "Content-Type: application/json" \
     https://localhost:9200/_security/user/kibana_system/_password \
@@ -81,17 +90,17 @@ echo_info "Kibana is healthy!"
 echo_info "Step 5: Waiting for Fleet Server to be healthy..."
 RETRY=0
 MAX_RETRY=30
-until docker exec fleet-server curl -s --cacert /certs/ca/ca.crt https://localhost:8220/api/status 2>/dev/null | grep -q '"HEALTHY"'; do
+until $CONTAINER_CLI exec fleet-server curl -s --cacert /certs/ca/ca.crt https://localhost:8220/api/status 2>/dev/null | grep -q '"HEALTHY"'; do
     RETRY=$((RETRY + 1))
     if [ $RETRY -ge $MAX_RETRY ]; then
-        echo_warn "Fleet Server taking longer than expected. Check logs with: docker logs fleet-server"
+        echo_warn "Fleet Server taking longer than expected. Check logs with: $CONTAINER_CLI logs fleet-server"
         break
     fi
     echo_warn "Fleet Server not ready yet, waiting 10 seconds... ($RETRY/$MAX_RETRY)"
     sleep 10
 done
 
-if docker exec fleet-server curl -s --cacert /certs/ca/ca.crt https://localhost:8220/api/status 2>/dev/null | grep -q '"HEALTHY"'; then
+if $CONTAINER_CLI exec fleet-server curl -s --cacert /certs/ca/ca.crt https://localhost:8220/api/status 2>/dev/null | grep -q '"HEALTHY"'; then
     echo_info "Fleet Server is healthy!"
 fi
 
